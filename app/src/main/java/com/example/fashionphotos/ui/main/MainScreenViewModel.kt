@@ -1,13 +1,19 @@
 package com.example.fashionphotos.ui.main
 
 import android.app.Application
+import android.content.ContentValues
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.os.Build
+import android.provider.MediaStore
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.fashionphotos.CameraHelper
 import com.example.fashionphotos.TTSHelper
+import com.example.fashionphotos.SpeechHelper
+import java.text.SimpleDateFormat
+import java.util.Locale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +55,11 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _currentReviewIndex = MutableStateFlow(0)
     val currentReviewIndex = _currentReviewIndex.asStateFlow()
+
+    private val _isVoiceTrigger = MutableStateFlow(false)
+    val isVoiceTrigger = _isVoiceTrigger.asStateFlow()
+
+    private val speechHelper = SpeechHelper(application)
 
     // TTS & Tone Generator helpers
     val ttsHelper = TTSHelper(application)
@@ -111,55 +122,106 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         _selectedVoiceId.value = voiceId
     }
 
+    fun setIsVoiceTrigger(isVoice: Boolean) {
+        _isVoiceTrigger.value = isVoice
+    }
+
     fun startCaptureFlow(cameraHelper: CameraHelper) {
         if (_isCapturing.value) return
         _isCapturing.value = true
+        cleanupCacheDir()
         _capturedPhotoUris.value = emptyList() // clear previous session's photos
 
-        captureJob = viewModelScope.launch {
-            try {
-                // 1. Initial Countdown
-                val initialSeconds = _countdownTime.value
-                for (i in initialSeconds downTo 1) {
-                    _countdownState.value = i
-                    playBeep()
-                    delay(1000)
-                }
-                _countdownState.value = null
+        if (_isVoiceTrigger.value) {
+            val total = _photoCount.value
+            _currentPhotoNumber.value = total
 
-                // 2. Capture Loop
-                val total = _photoCount.value
-                for (i in total downTo 1) {
-                    _currentPhotoNumber.value = i
-                    
-                    // Announce the photo count down number (e.g. "Photo 5", "Photo 4"...)
-                    ttsHelper.speak("Photo $i", _selectedVoiceId.value)
-                    
-                    // Wait 800ms for voice output, then capture
-                    delay(800)
-                    
-                    cameraHelper.takePhoto { uri ->
-                        if (uri != null) {
-                            _lastPhotoUri.value = uri
-                            _capturedPhotoUris.value = _capturedPhotoUris.value + uri
+            captureJob = viewModelScope.launch {
+                try {
+                    speechHelper.startListening { word ->
+                        if (word == "shoot" && _isCapturing.value) {
+                            val currentRemaining = _currentPhotoNumber.value ?: 0
+                            if (currentRemaining > 0) {
+                                ttsHelper.speak("Photo $currentRemaining", _selectedVoiceId.value)
+                                
+                                viewModelScope.launch {
+                                    delay(800)
+                                    cameraHelper.takePhoto { uri ->
+                                        if (uri != null) {
+                                            _lastPhotoUri.value = uri
+                                            _capturedPhotoUris.value = _capturedPhotoUris.value + uri
+                                            
+                                            val nextCount = currentRemaining - 1
+                                            _currentPhotoNumber.value = nextCount
+                                            if (nextCount <= 0) {
+                                                cancelCaptureFlow()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                    
-                    // Wait remaining 1200ms (total interval = 2 seconds)
-                    delay(1200)
+
+                    while (_isCapturing.value) {
+                        delay(100)
+                    }
+                } catch (e: Exception) {
+                    Log.e("MainScreenViewModel", "Voice trigger error", e)
+                } finally {
+                    speechHelper.stopListening()
+                    _isCapturing.value = false
+                    _countdownState.value = null
+                    _currentPhotoNumber.value = null
                 }
-            } catch (e: Exception) {
-                Log.e("MainScreenViewModel", "Capture flow error", e)
-            } finally {
-                _isCapturing.value = false
-                _countdownState.value = null
-                _currentPhotoNumber.value = null
+            }
+        } else {
+            captureJob = viewModelScope.launch {
+                try {
+                    // 1. Initial Countdown
+                    val initialSeconds = _countdownTime.value
+                    for (i in initialSeconds downTo 1) {
+                        _countdownState.value = i
+                        playBeep()
+                        delay(1000)
+                    }
+                    _countdownState.value = null
+
+                    // 2. Capture Loop
+                    val total = _photoCount.value
+                    for (i in total downTo 1) {
+                        _currentPhotoNumber.value = i
+                        
+                        // Announce the photo count down number (e.g. "Photo 5", "Photo 4"...)
+                        ttsHelper.speak("Photo $i", _selectedVoiceId.value)
+                        
+                        // Wait 800ms for voice output, then capture
+                        delay(800)
+                        
+                        cameraHelper.takePhoto { uri ->
+                            if (uri != null) {
+                                _lastPhotoUri.value = uri
+                                _capturedPhotoUris.value = _capturedPhotoUris.value + uri
+                            }
+                        }
+                        
+                        // Wait remaining 1200ms (total interval = 2 seconds)
+                        delay(1200)
+                    }
+                } catch (e: Exception) {
+                    Log.e("MainScreenViewModel", "Capture flow error", e)
+                } finally {
+                    _isCapturing.value = false
+                    _countdownState.value = null
+                    _currentPhotoNumber.value = null
+                }
             }
         }
     }
 
     fun cancelCaptureFlow() {
         captureJob?.cancel()
+        speechHelper.stopListening()
         _isCapturing.value = false
         _countdownState.value = null
         _currentPhotoNumber.value = null
@@ -183,6 +245,38 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun keepCurrentPhoto() {
         val uris = _capturedPhotoUris.value
         val index = _currentReviewIndex.value
+        if (index in uris.indices) {
+            val uriToKeep = uris[index]
+            val savedUri = savePhotoToMediaStore(uriToKeep)
+            if (savedUri != null) {
+                _lastPhotoUri.value = savedUri
+                android.widget.Toast.makeText(
+                    getApplication(),
+                    "Saved to Gallery",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+
+                // Delete the temporary cache file since we exported it
+                try {
+                    val uri = android.net.Uri.parse(uriToKeep)
+                    if (uri.scheme == "file") {
+                        val file = java.io.File(uri.path ?: "")
+                        if (file.exists()) {
+                            file.delete()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MainScreenViewModel", "Failed to delete cached photo: $uriToKeep", e)
+                }
+            } else {
+                android.widget.Toast.makeText(
+                    getApplication(),
+                    "Failed to save photo",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+
         if (index < uris.size - 1) {
             _currentReviewIndex.value = index + 1
         } else {
@@ -197,8 +291,16 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         if (index in uris.indices) {
             val uriToDelete = uris[index]
             try {
-                val contentResolver = getApplication<Application>().contentResolver
-                contentResolver.delete(android.net.Uri.parse(uriToDelete), null, null)
+                val uri = android.net.Uri.parse(uriToDelete)
+                if (uri.scheme == "file") {
+                    val file = java.io.File(uri.path ?: "")
+                    if (file.exists()) {
+                        file.delete()
+                    }
+                } else {
+                    val contentResolver = getApplication<Application>().contentResolver
+                    contentResolver.delete(uri, null, null)
+                }
             } catch (e: Exception) {
                 Log.e("MainScreenViewModel", "Failed to delete photo: $uriToDelete", e)
             }
@@ -219,9 +321,61 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    private fun savePhotoToMediaStore(uriString: String): String? {
+        try {
+            val cacheUri = android.net.Uri.parse(uriString)
+            val contentResolver = getApplication<Application>().contentResolver
+            
+            val inputStream = contentResolver.openInputStream(cacheUri) ?: return null
+            
+            val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US)
+                .format(System.currentTimeMillis())
+                
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, "OrliFashionPhotos_$name.jpg")
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/OrliFashionPhotos")
+                }
+            }
+            
+            val mediaUri = contentResolver.insert(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                contentValues
+            ) ?: return null
+            
+            val outputStream = contentResolver.openOutputStream(mediaUri) ?: return null
+            
+            inputStream.use { input ->
+                outputStream.use { output ->
+                    input.copyTo(output)
+                }
+            }
+            
+            return mediaUri.toString()
+        } catch (e: Exception) {
+            Log.e("MainScreenViewModel", "Failed to save photo to MediaStore", e)
+            return null
+        }
+    }
+
+    private fun cleanupCacheDir() {
+        try {
+            val cacheDir = getApplication<Application>().cacheDir
+            val files = cacheDir.listFiles { _, name -> name.startsWith("OrliFashionPhotos_") && name.endsWith(".jpg") }
+            files?.forEach { file ->
+                file.delete()
+            }
+        } catch (e: Exception) {
+            Log.e("MainScreenViewModel", "Failed to clean up cache dir", e)
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         ttsHelper.shutdown()
+        speechHelper.stopListening()
+        cleanupCacheDir()
         try {
             toneGenerator?.release()
         } catch (e: Exception) {

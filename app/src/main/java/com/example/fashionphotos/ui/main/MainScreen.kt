@@ -167,8 +167,7 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
     val capturedPhotoUris by viewModel.capturedPhotoUris.collectAsState()
     val isReviewing by viewModel.isReviewing.collectAsState()
     val currentReviewIndex by viewModel.currentReviewIndex.collectAsState()
-
-    val voices by viewModel.ttsHelper.availableVoices.collectAsState()
+    val isVoiceTrigger by viewModel.isVoiceTrigger.collectAsState()
 
     // Initialize CameraHelper once
     val cameraHelper = remember { CameraHelper(context) }
@@ -178,6 +177,26 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
             cameraHelper.shutdown()
         }
     }
+
+    val voices by viewModel.ttsHelper.availableVoices.collectAsState()
+
+    var hasAudioPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { isGranted ->
+            hasAudioPermission = isGranted
+            if (isGranted) {
+                viewModel.startCaptureFlow(cameraHelper)
+            } else {
+                android.widget.Toast.makeText(context, "Voice trigger requires audio permission", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. Camera Preview
@@ -275,14 +294,46 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
                         )
                     }
 
-                    // Dropdown: Countdown Time
-                    SettingsDropdown(
-                        label = "Initial Countdown",
-                        valueText = "$countdownTime seconds",
-                        options = listOf(5, 10, 15, 20, 30),
-                        optionText = { "$it seconds" },
-                        onSelected = { viewModel.setCountdownTime(it) }
-                    )
+                    // Trigger Mode Switch (Interval vs Voice)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.05f))
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("Trigger Mode", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                            Text(
+                                text = if (isVoiceTrigger) "Voice Command ('shoot')" else "Automatic Interval Timer",
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontSize = 12.sp
+                            )
+                        }
+                        Switch(
+                            checked = isVoiceTrigger,
+                            onCheckedChange = { viewModel.setIsVoiceTrigger(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFFFF4B72),
+                                uncheckedThumbColor = Color.LightGray,
+                                uncheckedTrackColor = Color.DarkGray
+                            )
+                        )
+                    }
+
+                    if (!isVoiceTrigger) {
+                        // Dropdown: Countdown Time
+                        SettingsDropdown(
+                            label = "Initial Countdown",
+                            valueText = "$countdownTime seconds",
+                            options = listOf(5, 10, 15, 20, 30),
+                            optionText = { "$it seconds" },
+                            onSelected = { viewModel.setCountdownTime(it) }
+                        )
+                    }
 
                     // Dropdown: Number of Photos
                     SettingsDropdown(
@@ -336,7 +387,17 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
 
                     // Start Action Button
                     Button(
-                        onClick = { viewModel.startCaptureFlow(cameraHelper) },
+                        onClick = {
+                            if (isVoiceTrigger) {
+                                if (hasAudioPermission) {
+                                    viewModel.startCaptureFlow(cameraHelper)
+                                } else {
+                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            } else {
+                                viewModel.startCaptureFlow(cameraHelper)
+                            }
+                        },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color(0xFFFF4B72)
                         ),
@@ -421,41 +482,98 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
                             textAlign = TextAlign.Center
                         )
                     } else if (currentPhotoNumber != null) {
-                        // Displaying Interval Capturing
-                        Text(
-                            text = "CAPTURING ACTIVE",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFF4B72),
-                            style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 2.sp),
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        )
+                        if (isVoiceTrigger) {
+                            Text(
+                                text = "VOICE TRIGGER ACTIVE",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF3F51B5),
+                                style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 2.sp),
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
 
-                        CircularProgressIndicator(
-                            color = Color(0xFFFF4B72),
-                            trackColor = Color.White.copy(alpha = 0.1f),
-                            strokeWidth = 6.dp,
-                            modifier = Modifier
-                                .size(100.dp)
-                                .padding(8.dp)
-                        )
+                            val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                            val scale by infiniteTransition.animateFloat(
+                                initialValue = 0.8f,
+                                targetValue = 1.2f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(1000, easing = LinearEasing),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "scale"
+                            )
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size((100 * scale).dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF3F51B5).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CameraAlt,
+                                    contentDescription = "Listening",
+                                    tint = Color(0xFF3F51B5),
+                                    modifier = Modifier.size(48.dp)
+                                )
+                            }
 
-                        Text(
-                            text = "Photo countdown count:",
-                            fontSize = 14.sp,
-                            color = Color.White.copy(alpha = 0.7f),
-                            textAlign = TextAlign.Center
-                        )
+                            Spacer(modifier = Modifier.height(24.dp))
 
-                        Text(
-                            text = "$currentPhotoNumber remaining",
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White,
-                            textAlign = TextAlign.Center
-                        )
+                            Text(
+                                text = "Say \"shoot\" to capture!",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(
+                                text = "$currentPhotoNumber remaining",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White.copy(alpha = 0.6f),
+                                textAlign = TextAlign.Center
+                            )
+                        } else {
+                            // Displaying Interval Capturing
+                            Text(
+                                text = "CAPTURING ACTIVE",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFF4B72),
+                                style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 2.sp),
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
+
+                            CircularProgressIndicator(
+                                color = Color(0xFFFF4B72),
+                                trackColor = Color.White.copy(alpha = 0.1f),
+                                strokeWidth = 6.dp,
+                                modifier = Modifier
+                                    .size(100.dp)
+                                    .padding(8.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                text = "Photo countdown count:",
+                                fontSize = 14.sp,
+                                color = Color.White.copy(alpha = 0.7f),
+                                textAlign = TextAlign.Center
+                            )
+
+                            Text(
+                                text = "$currentPhotoNumber remaining",
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(64.dp))

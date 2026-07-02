@@ -72,23 +72,15 @@ class CameraHelper(private val context: Context) {
             return
         }
 
-        // Create time-stamped name and MediaStore entry
+        // Create time-stamped name
         val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US)
             .format(System.currentTimeMillis())
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "OrliFashionPhotos_$name")
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/OrliFashionPhotos")
-            }
-        }
 
-        // Create output options object which contains file + metadata
-        val outputOptions = ImageCapture.OutputFileOptions.Builder(
-            context.contentResolver,
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            contentValues
-        ).build()
+        val cacheDir = context.cacheDir
+        val photoFile = java.io.File(cacheDir, "OrliFashionPhotos_$name.jpg")
+
+        // Create output options object
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
 
         // Set up image capture listener, which is triggered after photo has been taken
         imageCapture.takePicture(
@@ -101,9 +93,9 @@ class CameraHelper(private val context: Context) {
                 }
 
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    val savedUri = output.savedUri
+                    val savedUri = android.net.Uri.fromFile(photoFile)
                     Log.d("CameraHelper", "Photo capture succeeded: $savedUri")
-                    onPhotoSaved(savedUri?.toString())
+                    onPhotoSaved(savedUri.toString())
                 }
             }
         )
