@@ -145,8 +145,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                             
                             viewModelScope.launch {
                                 delay(1000)
-                                ttsHelper.speak("Say Cheese!", _selectedVoiceId.value)
-                                delay(2000)
+                                ttsHelper.speak("Smile and say cheese!", _selectedVoiceId.value)
+                                delay(2500)
                                 cameraHelper.takePhoto { uri ->
                                     try {
                                         if (uri != null) {
@@ -192,10 +192,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                     for (i in total downTo 1) {
                         _currentPhotoNumber.value = i
                         
-                        ttsHelper.speak("Say Cheese!", _selectedVoiceId.value)
+                        ttsHelper.speak("Smile and say cheese!", _selectedVoiceId.value)
                         
-                        // Wait 2 seconds (2000ms) before taking the photo
-                        delay(2000)
+                        // Wait 2.5 seconds (2500ms) before taking the photo
+                        delay(2500)
                         
                         cameraHelper.takePhoto { uri ->
                             if (uri != null) {
