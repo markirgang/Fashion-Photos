@@ -98,7 +98,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
                     // Welcome greeting on startup
                     ttsHelper.speak(
-                        "Welcome to Orli's Fashion Photos. I can't wait to photograph what Orli has designed sewn together.",
+                        "Welcome to Orli's Fashion Photos!",
                         _selectedVoiceId.value
                     )
                 }
@@ -133,30 +133,30 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         _capturedPhotoUris.value = emptyList() // clear previous session's photos
 
         if (_isVoiceTrigger.value) {
-            val total = _photoCount.value
-            _currentPhotoNumber.value = total
+            _currentPhotoNumber.value = 1
+            var isSingleCaptureInProgress = false
 
             captureJob = viewModelScope.launch {
                 try {
                     speechHelper.startListening { word ->
-                        if (word == "shoot" && _isCapturing.value) {
-                            val currentRemaining = _currentPhotoNumber.value ?: 0
-                            if (currentRemaining > 0) {
-                                ttsHelper.speak("Photo $currentRemaining", _selectedVoiceId.value)
-                                
-                                viewModelScope.launch {
-                                    delay(800)
-                                    cameraHelper.takePhoto { uri ->
+                        if (word == "shoot" && _isCapturing.value && !isSingleCaptureInProgress) {
+                            isSingleCaptureInProgress = true
+                            val currentNum = _currentPhotoNumber.value ?: 1
+                            
+                            viewModelScope.launch {
+                                delay(1000)
+                                ttsHelper.speak("Say Cheese!", _selectedVoiceId.value)
+                                delay(2000)
+                                cameraHelper.takePhoto { uri ->
+                                    try {
                                         if (uri != null) {
                                             _lastPhotoUri.value = uri
                                             _capturedPhotoUris.value = _capturedPhotoUris.value + uri
-                                            
-                                            val nextCount = currentRemaining - 1
-                                            _currentPhotoNumber.value = nextCount
-                                            if (nextCount <= 0) {
-                                                cancelCaptureFlow()
-                                            }
+                                            _currentPhotoNumber.value = currentNum + 1
+                                            ttsHelper.speak("Photo Taken!", _selectedVoiceId.value)
                                         }
+                                    } finally {
+                                        isSingleCaptureInProgress = false
                                     }
                                 }
                             }
@@ -192,21 +192,21 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                     for (i in total downTo 1) {
                         _currentPhotoNumber.value = i
                         
-                        // Announce the photo count down number (e.g. "Photo 5", "Photo 4"...)
-                        ttsHelper.speak("Photo $i", _selectedVoiceId.value)
+                        ttsHelper.speak("Say Cheese!", _selectedVoiceId.value)
                         
-                        // Wait 800ms for voice output, then capture
-                        delay(800)
+                        // Wait 2 seconds (2000ms) before taking the photo
+                        delay(2000)
                         
                         cameraHelper.takePhoto { uri ->
                             if (uri != null) {
                                 _lastPhotoUri.value = uri
                                 _capturedPhotoUris.value = _capturedPhotoUris.value + uri
+                                ttsHelper.speak("Photo Taken!", _selectedVoiceId.value)
                             }
                         }
                         
-                        // Wait remaining 1200ms (total interval = 2 seconds)
-                        delay(1200)
+                        // Wait 2 seconds for TTS output and interval spacing
+                        delay(2000)
                     }
                 } catch (e: Exception) {
                     Log.e("MainScreenViewModel", "Capture flow error", e)
@@ -336,6 +336,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                 put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
                 if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
                     put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/OrliFashionPhotos")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
                 }
             }
             
@@ -350,6 +351,13 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                 outputStream.use { output ->
                     input.copyTo(output)
                 }
+            }
+
+            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+                val updateValues = ContentValues().apply {
+                    put(MediaStore.Images.Media.IS_PENDING, 0)
+                }
+                contentResolver.update(mediaUri, updateValues, null, null)
             }
             
             return mediaUri.toString()

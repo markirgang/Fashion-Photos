@@ -2,6 +2,7 @@ package com.example.fashionphotos.ui.main
 
 import android.Manifest
 import android.app.Application
+import android.os.Build
 import android.util.Log
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -61,22 +62,32 @@ fun MainScreen(
     val viewModel: MainScreenViewModel = viewModel {
         MainScreenViewModel(app)
     }
-    var hasCameraPermission by remember {
+    val requiredPermissions = remember {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            arrayOf(Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            arrayOf(Manifest.permission.CAMERA)
+        }
+    }
+
+    var hasRequiredPermissions by remember {
         mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            requiredPermissions.all {
+                ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+            }
         )
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { isGranted ->
-            hasCameraPermission = isGranted
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+        onResult = { permissions ->
+            hasRequiredPermissions = requiredPermissions.all { permissions[it] == true }
         }
     )
 
     LaunchedEffect(Unit) {
-        if (!hasCameraPermission) {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
+        if (!hasRequiredPermissions) {
+            permissionLauncher.launch(requiredPermissions)
         }
     }
 
@@ -85,11 +96,11 @@ fun MainScreen(
             modifier = modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
-            if (hasCameraPermission) {
+            if (hasRequiredPermissions) {
                 CameraAppContent(viewModel)
             } else {
                 PermissionRequestScreen(onGrantRequest = {
-                    permissionLauncher.launch(Manifest.permission.CAMERA)
+                    permissionLauncher.launch(requiredPermissions)
                 })
             }
         }
@@ -168,6 +179,8 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
     val isReviewing by viewModel.isReviewing.collectAsState()
     val currentReviewIndex by viewModel.currentReviewIndex.collectAsState()
     val isVoiceTrigger by viewModel.isVoiceTrigger.collectAsState()
+
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
 
     // Initialize CameraHelper once
     val cameraHelper = remember { CameraHelper(context) }
@@ -256,102 +269,149 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Text(
-                        text = "Session Settings",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        modifier = Modifier.align(Alignment.Start)
-                    )
-
-                    // Camera Switch (Front/Back)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.White.copy(alpha = 0.05f))
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    TabRow(
+                        selectedTabIndex = selectedTabIndex,
+                        containerColor = Color.Transparent,
+                        contentColor = Color(0xFFFF4B72),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column {
-                            Text("Camera Source", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                            Text(
-                                text = if (isFrontCamera) "Front Selfie Camera" else "Rear Main Camera",
-                                color = Color.White.copy(alpha = 0.6f),
-                                fontSize = 12.sp
-                            )
+                        Tab(
+                            selected = selectedTabIndex == 0,
+                            onClick = { selectedTabIndex = 0 },
+                            text = {
+                                Text(
+                                    text = "CAPTURE",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = if (selectedTabIndex == 0) Color(0xFFFF4B72) else Color.White.copy(alpha = 0.6f)
+                                )
+                            }
+                        )
+                        Tab(
+                            selected = selectedTabIndex == 1,
+                            onClick = { selectedTabIndex = 1 },
+                            text = {
+                                Text(
+                                    text = "SETTINGS",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = if (selectedTabIndex == 1) Color(0xFFFF4B72) else Color.White.copy(alpha = 0.6f)
+                                )
+                            }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Crossfade(
+                        targetState = selectedTabIndex,
+                        label = "settingsTab",
+                        modifier = Modifier.fillMaxWidth()
+                    ) { tabIndex ->
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            when (tabIndex) {
+                                0 -> {
+                                    // Camera Switch (Front/Back)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.White.copy(alpha = 0.05f))
+                                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column {
+                                            Text("Camera Source", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                            Text(
+                                                text = if (isFrontCamera) "Front Selfie Camera" else "Rear Main Camera",
+                                                color = Color.White.copy(alpha = 0.6f),
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                        Switch(
+                                            checked = isFrontCamera,
+                                            onCheckedChange = { viewModel.setIsFrontCamera(it) },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = Color.White,
+                                                checkedTrackColor = Color(0xFFFF4B72),
+                                                uncheckedThumbColor = Color.LightGray,
+                                                uncheckedTrackColor = Color.DarkGray
+                                            )
+                                        )
+                                    }
+
+                                    // Trigger Mode Switch (Interval vs Voice)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.White.copy(alpha = 0.05f))
+                                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column {
+                                            Text("Trigger Mode", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                            Text(
+                                                text = if (isVoiceTrigger) "Voice Command ('shoot')" else "Automatic Interval Timer",
+                                                color = Color.White.copy(alpha = 0.6f),
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                        Switch(
+                                            checked = isVoiceTrigger,
+                                            onCheckedChange = { viewModel.setIsVoiceTrigger(it) },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = Color.White,
+                                                checkedTrackColor = Color(0xFFFF4B72),
+                                                uncheckedThumbColor = Color.LightGray,
+                                                uncheckedTrackColor = Color.DarkGray
+                                            )
+                                        )
+                                    }
+                                }
+                                1 -> {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
+                                        if (!isVoiceTrigger) {
+                                            // Dropdown: Countdown Time
+                                            SettingsDropdown(
+                                                label = "Initial Countdown",
+                                                valueText = "$countdownTime seconds",
+                                                options = listOf(5, 10, 15, 20, 30),
+                                                optionText = { "$it seconds" },
+                                                onSelected = { viewModel.setCountdownTime(it) }
+                                            )
+
+                                            // Dropdown: Number of Photos
+                                            SettingsDropdown(
+                                                label = "Number of Photos",
+                                                valueText = "$photoCount photos",
+                                                options = listOf(1, 2, 3, 5, 10, 15, 20, 30, 50),
+                                                optionText = { "$it photos" },
+                                                onSelected = { viewModel.setPhotoCount(it) }
+                                            )
+                                        }
+
+                                        // Dropdown: TTS Voice select
+                                        SettingsDropdown(
+                                            label = "Announcement Voice / Language",
+                                            valueText = voices.find { it.id == selectedVoiceId }?.displayName ?: "Default Voice",
+                                            options = voices,
+                                            optionText = { it.displayName },
+                                            onSelected = { viewModel.setSelectedVoiceId(it.id) }
+                                        )
+                                    }
+                                }
+                            }
                         }
-                        Switch(
-                            checked = isFrontCamera,
-                            onCheckedChange = { viewModel.setIsFrontCamera(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = Color(0xFFFF4B72),
-                                uncheckedThumbColor = Color.LightGray,
-                                uncheckedTrackColor = Color.DarkGray
-                            )
-                        )
                     }
-
-                    // Trigger Mode Switch (Interval vs Voice)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.White.copy(alpha = 0.05f))
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("Trigger Mode", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                            Text(
-                                text = if (isVoiceTrigger) "Voice Command ('shoot')" else "Automatic Interval Timer",
-                                color = Color.White.copy(alpha = 0.6f),
-                                fontSize = 12.sp
-                            )
-                        }
-                        Switch(
-                            checked = isVoiceTrigger,
-                            onCheckedChange = { viewModel.setIsVoiceTrigger(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = Color(0xFFFF4B72),
-                                uncheckedThumbColor = Color.LightGray,
-                                uncheckedTrackColor = Color.DarkGray
-                            )
-                        )
-                    }
-
-                    if (!isVoiceTrigger) {
-                        // Dropdown: Countdown Time
-                        SettingsDropdown(
-                            label = "Initial Countdown",
-                            valueText = "$countdownTime seconds",
-                            options = listOf(5, 10, 15, 20, 30),
-                            optionText = { "$it seconds" },
-                            onSelected = { viewModel.setCountdownTime(it) }
-                        )
-                    }
-
-                    // Dropdown: Number of Photos
-                    SettingsDropdown(
-                        label = "Number of Photos",
-                        valueText = "$photoCount photos",
-                        options = listOf(1, 2, 3, 5, 10, 15, 20, 30, 50),
-                        optionText = { "$it photos" },
-                        onSelected = { viewModel.setPhotoCount(it) }
-                    )
-
-                    // Dropdown: TTS Voice select
-                    SettingsDropdown(
-                        label = "Announcement Voice / Language",
-                        valueText = voices.find { it.id == selectedVoiceId }?.displayName ?: "Default Voice",
-                        options = voices,
-                        optionText = { it.displayName },
-                        onSelected = { viewModel.setSelectedVoiceId(it.id) }
-                    )
 
                     Spacer(modifier = Modifier.height(8.dp))
 
@@ -531,7 +591,7 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
                             Spacer(modifier = Modifier.height(8.dp))
 
                             Text(
-                                text = "$currentPhotoNumber remaining",
+                                text = "${capturedPhotoUris.size} photos taken",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = Color.White.copy(alpha = 0.6f),
@@ -600,7 +660,11 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
                             tint = Color.White,
                             modifier = Modifier.padding(end = 8.dp)
                         )
-                        Text("CANCEL", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (isVoiceTrigger) "STOP" else "CANCEL",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
