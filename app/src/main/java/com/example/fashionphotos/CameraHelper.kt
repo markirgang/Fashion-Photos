@@ -2,6 +2,7 @@ package com.example.fashionphotos
 
 import android.content.ContentValues
 import android.content.Context
+import android.media.MediaActionSound
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
@@ -18,6 +19,9 @@ class CameraHelper(private val context: Context) {
     private var imageCapture: ImageCapture? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val mediaActionSound = MediaActionSound().apply {
+        load(MediaActionSound.SHUTTER_CLICK)
+    }
 
     fun bindCamera(
         lifecycleOwner: LifecycleOwner,
@@ -72,6 +76,8 @@ class CameraHelper(private val context: Context) {
             return
         }
 
+        mediaActionSound.play(MediaActionSound.SHUTTER_CLICK)
+
         // Create time-stamped name
         val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US)
             .format(System.currentTimeMillis())
@@ -107,5 +113,6 @@ class CameraHelper(private val context: Context) {
 
     fun shutdown() {
         cameraExecutor.shutdown()
+        mediaActionSound.release()
     }
 }
