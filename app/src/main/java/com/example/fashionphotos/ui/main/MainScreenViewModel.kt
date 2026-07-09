@@ -242,6 +242,13 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun setCurrentReviewIndex(index: Int) {
+        val uris = _capturedPhotoUris.value
+        if (index in uris.indices) {
+            _currentReviewIndex.value = index
+        }
+    }
+
     fun keepCurrentPhoto() {
         val uris = _capturedPhotoUris.value
         val index = _currentReviewIndex.value
@@ -268,6 +275,16 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                 } catch (e: Exception) {
                     Log.e("MainScreenViewModel", "Failed to delete cached photo: $uriToKeep", e)
                 }
+
+                // Remove from capturedPhotoUris since it has been saved to Gallery
+                val updatedList = uris.toMutableList().apply { removeAt(index) }
+                _capturedPhotoUris.value = updatedList
+
+                if (updatedList.isEmpty()) {
+                    _currentReviewIndex.value = 0
+                } else if (_currentReviewIndex.value >= updatedList.size) {
+                    _currentReviewIndex.value = updatedList.size - 1
+                }
             } else {
                 android.widget.Toast.makeText(
                     getApplication(),
@@ -276,11 +293,54 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                 ).show()
             }
         }
+    }
 
-        if (index < uris.size - 1) {
-            _currentReviewIndex.value = index + 1
-        } else {
-            _isReviewing.value = false
+    fun saveAllPhotos() {
+        viewModelScope.launch {
+            val uris = _capturedPhotoUris.value
+            if (uris.isEmpty()) return@launch
+            
+            var savedCount = 0
+            var lastSavedUri: String? = null
+            
+            for (uriToKeep in uris) {
+                val savedUri = savePhotoToMediaStore(uriToKeep)
+                if (savedUri != null) {
+                    savedCount++
+                    lastSavedUri = savedUri
+                    // Delete the temporary cache file since we exported it
+                    try {
+                        val uri = android.net.Uri.parse(uriToKeep)
+                        if (uri.scheme == "file") {
+                            val file = java.io.File(uri.path ?: "")
+                            if (file.exists()) {
+                                file.delete()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("MainScreenViewModel", "Failed to delete cached photo: $uriToKeep", e)
+                    }
+                }
+            }
+            
+            if (savedCount > 0) {
+                if (lastSavedUri != null) {
+                    _lastPhotoUri.value = lastSavedUri
+                }
+                android.widget.Toast.makeText(
+                    getApplication(),
+                    "Saved $savedCount photos to Gallery",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                android.widget.Toast.makeText(
+                    getApplication(),
+                    "Failed to save photos",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+            
+            _capturedPhotoUris.value = emptyList()
             _currentReviewIndex.value = 0
         }
     }
@@ -326,14 +386,24 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             val cacheUri = android.net.Uri.parse(uriString)
             val contentResolver = getApplication<Application>().contentResolver
             
-            val inputStream = contentResolver.openInputStream(cacheUri) ?: return null
+            val inputStream = if (cacheUri.scheme == "file") {
+                val path = cacheUri.path ?: return null
+                java.io.FileInputStream(java.io.File(path))
+            } else {
+                contentResolver.openInputStream(cacheUri) ?: return null
+            }
             
             val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US)
                 .format(System.currentTimeMillis())
                 
+            val nowSeconds = System.currentTimeMillis() / 1000
+            val nowMillis = System.currentTimeMillis()
             val contentValues = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, "OrliFashionPhotos_$name.jpg")
                 put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                put(MediaStore.Images.Media.DATE_ADDED, nowSeconds)
+                put(MediaStore.Images.Media.DATE_TAKEN, nowMillis)
+                put(MediaStore.Images.Media.DATE_MODIFIED, nowSeconds)
                 if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
                     put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/OrliFashionPhotos")
                     put(MediaStore.Images.Media.IS_PENDING, 1)
@@ -358,6 +428,11 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                     put(MediaStore.Images.Media.IS_PENDING, 0)
                 }
                 contentResolver.update(mediaUri, updateValues, null, null)
+            } else {
+                val mediaScanIntent = android.content.Intent(android.content.Intent.ACTION_MEDIA_SCANNER_SCAN_FILE).apply {
+                    data = mediaUri
+                }
+                getApplication<Application>().sendBroadcast(mediaScanIntent)
             }
             
             return mediaUri.toString()

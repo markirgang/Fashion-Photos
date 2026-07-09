@@ -19,6 +19,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.PlayArrow
@@ -144,7 +147,7 @@ fun PermissionRequestScreen(onGrantRequest: () -> Unit) {
                 modifier = Modifier.padding(bottom = 8.dp)
             )
             Text(
-                text = "OrliFashion Photos needs camera access to help you take stunning pictures automatically.",
+                text = "Orli's Fashion Photos needs camera access to help you take stunning pictures automatically.",
                 fontSize = 15.sp,
                 color = Color.White.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center,
@@ -176,11 +179,16 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
     val currentPhotoNumber by viewModel.currentPhotoNumber.collectAsState()
     val lastPhotoUri by viewModel.lastPhotoUri.collectAsState()
     val capturedPhotoUris by viewModel.capturedPhotoUris.collectAsState()
-    val isReviewing by viewModel.isReviewing.collectAsState()
     val currentReviewIndex by viewModel.currentReviewIndex.collectAsState()
     val isVoiceTrigger by viewModel.isVoiceTrigger.collectAsState()
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(isCapturing) {
+        if (!isCapturing && capturedPhotoUris.isNotEmpty()) {
+            selectedTabIndex = 1
+        }
+    }
 
     // Initialize CameraHelper once
     val cameraHelper = remember { CameraHelper(context) }
@@ -239,7 +247,7 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "ORLIFASHION PHOTOS",
+                        text = "ORLI'S FASHION PHOTOS",
                         fontSize = 28.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = Color.White,
@@ -261,10 +269,11 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
+                        .navigationBarsPadding() // Ensure it is not obstructed at the bottom by navigation bar
                         .clip(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
                         .background(Color(0xE614141E))
                         .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
-                        .padding(24.dp)
+                        .padding(bottom = 16.dp, start = 24.dp, end = 24.dp, top = 24.dp)
                         .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -282,7 +291,7 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
                                 Text(
                                     text = "CAPTURE",
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
+                                    fontSize = 12.sp,
                                     color = if (selectedTabIndex == 0) Color(0xFFFF4B72) else Color.White.copy(alpha = 0.6f)
                                 )
                             }
@@ -292,10 +301,22 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
                             onClick = { selectedTabIndex = 1 },
                             text = {
                                 Text(
+                                    text = "PHOTOS (${capturedPhotoUris.size})",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = if (selectedTabIndex == 1) Color(0xFFFF4B72) else Color.White.copy(alpha = 0.6f)
+                                )
+                            }
+                        )
+                        Tab(
+                            selected = selectedTabIndex == 2,
+                            onClick = { selectedTabIndex = 2 },
+                            text = {
+                                Text(
                                     text = "SETTINGS",
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = if (selectedTabIndex == 1) Color(0xFFFF4B72) else Color.White.copy(alpha = 0.6f)
+                                    fontSize = 12.sp,
+                                    color = if (selectedTabIndex == 2) Color(0xFFFF4B72) else Color.White.copy(alpha = 0.6f)
                                 )
                             }
                         )
@@ -373,8 +394,267 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
                                             )
                                         )
                                     }
+
+                                    // Last Photo Preview inside the Capture Tab
+                                    if (lastPhotoUri != null) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .background(Color.White.copy(alpha = 0.05f))
+                                                .clickable {
+                                                    try {
+                                                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                            setDataAndType(Uri.parse(lastPhotoUri), "image/*")
+                                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                        }
+                                                        context.startActivity(intent)
+                                                    } catch (e: Exception) {
+                                                        Log.e("MainScreen", "Failed to open gallery image", e)
+                                                    }
+                                                }
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(64.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                            ) {
+                                                AsyncImage(
+                                                    model = lastPhotoUri,
+                                                    contentDescription = "Last photo",
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(16.dp))
+                                            Column {
+                                                Text("Last Saved Photo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                                Text("Tap to view in Gallery", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(16.dp))
+
+                                    // Start Action Button (Moved here inside Capture Tab)
+                                    Button(
+                                        onClick = {
+                                            if (isVoiceTrigger) {
+                                                if (hasAudioPermission) {
+                                                    viewModel.startCaptureFlow(cameraHelper)
+                                                } else {
+                                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                                }
+                                            } else {
+                                                viewModel.startCaptureFlow(cameraHelper)
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFFFF4B72)
+                                        ),
+                                        shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(56.dp)
+                                            .shadow(12.dp, RoundedCornerShape(16.dp))
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.padding(end = 8.dp)
+                                        )
+                                        Text(
+                                            text = "START CAPTURING",
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.labelLarge.copy(
+                                                letterSpacing = 1.5.sp
+                                            )
+                                        )
+                                    }
                                 }
                                 1 -> {
+                                    // PHOTOS Tab Content
+                                    if (capturedPhotoUris.isEmpty()) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 32.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PhotoLibrary,
+                                                contentDescription = null,
+                                                tint = Color(0xFFFF4B72),
+                                                modifier = Modifier.size(64.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            Text(
+                                                text = "No photos taken in this session",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 16.sp
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = "Go to the CAPTURE tab to start taking photos",
+                                                color = Color.White.copy(alpha = 0.6f),
+                                                fontSize = 13.sp,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                    } else {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                                        ) {
+                                            // Thumbnail list
+                                            LazyRow(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                itemsIndexed(capturedPhotoUris) { index, uri ->
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(60.dp)
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .background(Color.Black.copy(alpha = 0.4f))
+                                                            .border(
+                                                                if (index == currentReviewIndex) {
+                                                                    BorderStroke(2.dp, Color(0xFFFF4B72))
+                                                                } else {
+                                                                    BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+                                                                },
+                                                                RoundedCornerShape(8.dp)
+                                                            )
+                                                            .clickable {
+                                                                viewModel.setCurrentReviewIndex(index)
+                                                            }
+                                                    ) {
+                                                        AsyncImage(
+                                                            model = uri,
+                                                            contentDescription = "Session photo thumbnail",
+                                                            contentScale = ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            // Large active photo preview
+                                            if (currentReviewIndex in capturedPhotoUris.indices) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(240.dp)
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                        .background(Color.Black)
+                                                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    AsyncImage(
+                                                        model = capturedPhotoUris[currentReviewIndex],
+                                                        contentDescription = "Active review photo",
+                                                        contentScale = ContentScale.Fit,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                    // Index Badge overlay
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .align(Alignment.BottomStart)
+                                                            .padding(12.dp)
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .background(Color.Black.copy(alpha = 0.6f))
+                                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "${currentReviewIndex + 1} / ${capturedPhotoUris.size}",
+                                                            color = Color.White,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+
+                                                // Action buttons (Delete / Save)
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    // Delete Button
+                                                    Button(
+                                                        onClick = { viewModel.deleteCurrentPhoto() },
+                                                        colors = ButtonDefaults.buttonColors(
+                                                            containerColor = Color(0xFFFF3B30)
+                                                        ),
+                                                        shape = RoundedCornerShape(12.dp),
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .height(48.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Delete,
+                                                            contentDescription = null,
+                                                            tint = Color.White,
+                                                            modifier = Modifier.padding(end = 4.dp).size(18.dp)
+                                                        )
+                                                        Text("Delete", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
+                                                    }
+
+                                                    // Keep/Save Button
+                                                    Button(
+                                                        onClick = { viewModel.keepCurrentPhoto() },
+                                                        colors = ButtonDefaults.buttonColors(
+                                                            containerColor = Color(0xFF34C759)
+                                                        ),
+                                                        shape = RoundedCornerShape(12.dp),
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .height(48.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Check,
+                                                            contentDescription = null,
+                                                            tint = Color.White,
+                                                            modifier = Modifier.padding(end = 4.dp).size(18.dp)
+                                                        )
+                                                        Text("Save", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
+                                                    }
+                                                }
+
+                                                // Save All Button
+                                                Button(
+                                                    onClick = { viewModel.saveAllPhotos() },
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = Color(0xFF3F51B5)
+                                                    ),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(48.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.PhotoLibrary,
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier.padding(end = 6.dp).size(18.dp)
+                                                    )
+                                                    Text("SAVE ALL TO GALLERY", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                2 -> {
+                                    // SETTINGS Tab Content
                                     Column(
                                         modifier = Modifier.fillMaxWidth(),
                                         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -411,77 +691,6 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
                                 }
                             }
                         }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    if (capturedPhotoUris.isNotEmpty()) {
-                        Button(
-                            onClick = { viewModel.setReviewing(true) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF3F51B5)
-                            ),
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
-                                .shadow(12.dp, RoundedCornerShape(16.dp))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PhotoLibrary,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.padding(end = 8.dp)
-                            )
-                            Text(
-                                text = "REVIEW PHOTOS (${capturedPhotoUris.size})",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelLarge.copy(
-                                    letterSpacing = 1.5.sp
-                                )
-                            )
-                        }
-                    }
-
-                    // Start Action Button
-                    Button(
-                        onClick = {
-                            if (isVoiceTrigger) {
-                                if (hasAudioPermission) {
-                                    viewModel.startCaptureFlow(cameraHelper)
-                                } else {
-                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                }
-                            } else {
-                                viewModel.startCaptureFlow(cameraHelper)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFFF4B72)
-                        ),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
-                            .shadow(12.dp, RoundedCornerShape(16.dp))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.padding(end = 8.dp)
-                        )
-                        Text(
-                            text = "START CAPTURING",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                letterSpacing = 1.5.sp
-                            )
-                        )
                     }
                 }
             }
@@ -670,166 +879,7 @@ fun CameraAppContent(viewModel: MainScreenViewModel) {
             }
         }
 
-        // 4. Gallery Thumbnail (Bottom Left)
-        if (lastPhotoUri != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .safeDrawingPadding()
-                    .padding(start = 24.dp, bottom = if (isCapturing) 24.dp else 180.dp)
-                    .size(72.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.Black.copy(alpha = 0.4f))
-                    .border(2.dp, Color.White, RoundedCornerShape(16.dp))
-                    .clickable {
-                        try {
-                            val intent = Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(Uri.parse(lastPhotoUri), "image/*")
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
-                            Log.e("MainScreen", "Failed to open gallery image", e)
-                        }
-                    }
-            ) {
-                AsyncImage(
-                    model = lastPhotoUri,
-                    contentDescription = "Last captured photo",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-        }
 
-        // 5. Photo Review Dialog
-        if (isReviewing && capturedPhotoUris.isNotEmpty() && currentReviewIndex in capturedPhotoUris.indices) {
-            Dialog(
-                onDismissRequest = { viewModel.setReviewing(false) }
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.95f)
-                        .fillMaxHeight(0.85f)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color(0xE614141E))
-                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Title header
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = "Review Photos",
-                                    color = Color.White,
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Photo ${currentReviewIndex + 1} of ${capturedPhotoUris.size}",
-                                    color = Color.White.copy(alpha = 0.6f),
-                                    fontSize = 12.sp
-                                )
-                            }
-                            IconButton(
-                                onClick = { viewModel.setReviewing(false) },
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.1f))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Close",
-                                    tint = Color.White
-                                )
-                            }
-                        }
-
-                        // Photo viewer
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color.Black)
-                                .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            AsyncImage(
-                                model = capturedPhotoUris[currentReviewIndex],
-                                contentDescription = "Review Photo",
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-
-                        // Action Buttons
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Delete Button
-                            Button(
-                                onClick = { viewModel.deleteCurrentPhoto() },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFFFF3B30) // Coral red
-                                ),
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(52.dp)
-                                    .padding(horizontal = 8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.padding(end = 8.dp)
-                                )
-                                Text("Delete", fontWeight = FontWeight.Bold, color = Color.White)
-                            }
-
-                            // Keep Button
-                            Button(
-                                onClick = { viewModel.keepCurrentPhoto() },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF34C759) // Green/Teal
-                                ),
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(52.dp)
-                                    .padding(horizontal = 8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.padding(end = 8.dp)
-                                )
-                                Text("Keep", fontWeight = FontWeight.Bold, color = Color.White)
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
